@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SIH26001 - AI Landslide Early Warning System (NER)</title>
+  
+  <!-- Tailwind CSS & Leaflet JS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body class="bg-slate-900 text-slate-100 flex flex-col h-screen">
+
+  <!-- Header -->
+  <header class="bg-slate-800 border-b border-slate-700 px-6 py-4 flex justify-between items-center">
+    <div>
+      <h1 class="text-xl font-bold text-amber-400">SIH26001: AI Landslide Risk Monitor</h1>
+      <p class="text-xs text-slate-400">Target Zone: North Eastern Region (NER), India</p>
+    </div>
+    <div class="flex items-center space-x-2">
+      <span class="relative flex h-3 w-3">
+        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+        <span class="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+      </span>
+      <span class="text-xs font-mono text-slate-300">LIVE SENSOR STREAM</span>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <div class="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-4 p-4 overflow-hidden">
+    
+    <!-- GIS Map Area -->
+    <div class="lg:col-span-2 bg-slate-800 rounded-lg border border-slate-700 relative overflow-hidden flex flex-col">
+      <div id="map" class="w-full flex-1"></div>
+    </div>
+
+    <!-- Analytics & Telemetry Side Panel -->
+    <div class="bg-slate-800 rounded-lg border border-slate-700 p-4 flex flex-col justify-between overflow-y-auto">
+      <div>
+        <h2 class="text-lg font-semibold border-b border-slate-700 pb-2 mb-4 text-slate-200">
+          Station Telemetry & AI Alerts
+        </h2>
+        <div id="station-list" class="space-y-3">
+          <p class="text-slate-500 text-sm">Fetching telemetry from NER sensors...</p>
+        </div>
+      </div>
+
+      <!-- Legend -->
+      <div class="border-t border-slate-700 pt-3 mt-4 text-xs text-slate-400 grid grid-cols-3 gap-2 text-center">
+        <div class="p-2 bg-emerald-950/40 border border-emerald-800 rounded"><span class="text-emerald-400 font-bold block">SAFE</span> &lt; 0.45 Risk</div>
+        <div class="p-2 bg-amber-950/40 border border-amber-800 rounded"><span class="text-amber-400 font-bold block">WARNING</span> 0.45-0.75</div>
+        <div class="p-2 bg-rose-950/40 border border-rose-800 rounded"><span class="text-rose-400 font-bold block">CRITICAL</span> &gt; 0.75 Risk</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Initialize Map on North East India
+    const map = L.map('map').setView([25.5788, 91.8933], 7);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    let markers = [];
+
+    function getAlertBadge(alertLevel) {
+      if (alertLevel === 'CRITICAL') return '<span class="px-2 py-0.5 bg-rose-500/20 text-rose-400 border border-rose-500 text-xs font-bold rounded">CRITICAL</span>';
+      if (alertLevel === 'WARNING') return '<span class="px-2 py-0.5 bg-amber-500/20 text-amber-400 border border-amber-500 text-xs font-bold rounded">WARNING</span>';
+      return '<span class="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 border border-emerald-500 text-xs font-bold rounded">SAFE</span>';
+    }
+
+    async function fetchTelemetryData() {
+      try {
+        const response = await fetch('/api/v1/landslide/live-monitoring');
+        const result = await response.json();
+        
+        // Clear existing markers
+        markers.forEach(m => map.removeLayer(m));
+        markers = [];
+
+        const listContainer = document.getElementById('station-list');
+        listContainer.innerHTML = '';
+
+        result.data.forEach(station => {
+          const { riskScore, alertLevel } = station.riskAssessment;
+          const color = alertLevel === 'CRITICAL' ? '#f43f5e' : alertLevel === 'WARNING' ? '#fbbf24' : '#10b981';
+
+          // Add Map Marker
+          const marker = L.circleMarker([station.coordinates.lat, station.coordinates.lng], {
+            radius: 10,
+            fillColor: color,
+            color: '#ffffff',
+            weight: 2,
+            fillOpacity: 0.8
+          }).addTo(map);
+
+          marker.bindPopup(`
+            <strong style="color: black;">${station.location}</strong><br/>
+            Risk Score: ${riskScore}<br/>
+            Rainfall: ${station.metrics.rainfall} mm/hr
+          `);
+          markers.push(marker);
+
+          // Update Sidebar Cards
+          const card = document.createElement('div');
+          card.className = "p-3 bg-slate-900 rounded border border-slate-700 flex flex-col justify-between";
+          card.innerHTML = `
+            <div class="flex justify-between items-start mb-2">
+              <div>
+                <h3 class="font-bold text-sm text-slate-200">${station.location}</h3>
+                <span class="text-xs font-mono text-slate-500">ID: ${station.stationId}</span>
+              </div>
+              ${getAlertBadge(alertLevel)}
+            </div>
+            <div class="grid grid-cols-3 gap-1 text-xs text-slate-400 border-t border-slate-800 pt-2 mt-1">
+              <div>Rain: <span class="text-slate-200">${station.metrics.rainfall}mm</span></div>
+              <div>Moisture: <span class="text-slate-200">${station.metrics.soilMoisture}%</span></div>
+              <div>Disp: <span class="text-slate-200">${station.metrics.displacement}mm</span></div>
+            </div>
+          `;
+          listContainer.appendChild(card);
+        });
+
+      } catch (err) {
+        console.error('Failed to update telemetry:', err);
+      }
+    }
+
+    // Initial fetch & set poll interval (every 5 seconds)
+    fetchTelemetryData();
+    setInterval(fetchTelemetryData, 5000);
+  </script>
+</body>
+</html>
